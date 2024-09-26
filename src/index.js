@@ -10,18 +10,10 @@ const { downloadMedia } = require('./utils/media-handler');
 const { analyzeSEO } = require('./utils/seo-analyzer');
 
 async function generateMigrationPath(answers) {
-  let sourceContent;
-  let intermediateContent;
-
   try {
+    let sourceContent = [];
     if (answers.sourceCMS === 'WordPress') {
-      let postTypes;
-      try {
-        postTypes = await fetchWordPressPostTypes(answers.siteUrl, answers.auth);
-      } catch (error) {
-        logger.warn('Failed to fetch custom post types. Falling back to default post types.');
-        postTypes = ['posts', 'pages'];
-      }
+      const postTypes = await fetchWordPressPostTypes(answers.siteUrl, answers.auth);
       sourceContent = await fetchWordPressContent(answers.siteUrl, answers.auth, postTypes);
     } else if (answers.sourceCMS === 'Drupal') {
       sourceContent = await fetchDrupalContent(answers.siteUrl, answers.auth);
@@ -40,7 +32,7 @@ async function generateMigrationPath(answers) {
 
     logger.info(`${answers.sourceCMS} content fetched successfully. Total items: ${sourceContent.length}`);
 
-    intermediateContent = mapToIntermediate(sourceContent, answers.sourceCMS, answers.customMappings);
+    let intermediateContent = mapToIntermediate(sourceContent, answers.sourceCMS, answers.customMappings);
     logger.info(`Content mapped to intermediate format successfully. Total items: ${intermediateContent.length}`);
 
     // Handle media downloads
@@ -99,4 +91,20 @@ async function generateMigrationPath(answers) {
   }
 }
 
-module.exports = { generateMigrationPath };
+async function saveMigrationResult(migrationPath, outputDir = 'output') {
+  try {
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    const filename = `migration_${Date.now()}.json`;
+    const filepath = path.join(outputDir, filename);
+
+    await fs.promises.writeFile(filepath, JSON.stringify(migrationPath, null, 2));
+    logger.info(`Migration result saved to ${filepath}`);
+  } catch (error) {
+    logger.error('Error saving migration result:', error);
+  }
+}
+
+module.exports = { generateMigrationPath, saveMigrationResult };

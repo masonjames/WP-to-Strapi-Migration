@@ -47,6 +47,19 @@ async function fetchWordPressContent(siteUrl, auth, postTypes = ['posts', 'pages
           break;
         } else if (error.response && error.response.status === 404) {
           logger.warn(`Post type ${postType} not found or not accessible. Skipping.`);
+        } else if (error.response && error.response.status === 502) {
+          logger.warn(`Server error (502 Bad Gateway) when fetching ${postType}. The server might be overloaded. Retrying...`);
+          // Implement a retry mechanism here
+          // For example, wait for a few seconds and try again
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          try {
+            const retryResponse = await axios.get(`${baseUrl}?per_page=100`, { headers });
+            const retryData = retryResponse.data;
+            allContent = [...allContent, ...retryData];
+            logger.info(`Successfully fetched ${retryData.length} items for ${postType} after retry`);
+          } catch (retryError) {
+            logger.error(`Failed to fetch ${postType} even after retry: ${retryError.message}`);
+          }
         } else {
           logger.warn(`Error fetching content for post type ${postType}: ${error.message}`);
           if (error.response) {
