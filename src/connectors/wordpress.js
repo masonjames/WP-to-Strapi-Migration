@@ -21,18 +21,22 @@ async function fetchWordPressContent(siteUrl, auth, postTypes = ['posts', 'pages
         allContent = [...allContent, ...response.data];
         logger.info(`Successfully fetched ${response.data.length} items for ${postType}`);
       } catch (error) {
-        logger.warn(`Error fetching content for post type ${postType}: ${error.message}`);
-        if (error.response) {
-          logger.warn(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+        if (error.response && error.response.status === 404) {
+          logger.warn(`Post type ${postType} not found or not accessible. Skipping.`);
+        } else {
+          logger.warn(`Error fetching content for post type ${postType}: ${error.message}`);
+          if (error.response) {
+            logger.warn(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
+          }
         }
-        // Continue with the next post type instead of breaking the whole process
+        // Continue with the next post type
         continue;
       }
     }
 
     // Fetch Yoast SEO data
     try {
-      const yoastUrl = `${siteUrl}/wp-json/yoast/v1/get_head`;
+      const yoastUrl = `${siteUrl}/wp-json/yoast/v1/get_head?url=${siteUrl}`;
       const yoastResponse = await axios.get(yoastUrl, { headers });
       const yoastData = yoastResponse.data;
       logger.info('Successfully fetched Yoast SEO data');
@@ -105,7 +109,8 @@ async function fetchWordPressPostTypes(siteUrl, auth) {
     if (error.response) {
       logger.error(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
     }
-    throw error;
+    // Return default post types if unable to fetch
+    return ['posts', 'pages'];
   }
 }
 

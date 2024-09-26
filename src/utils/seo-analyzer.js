@@ -8,19 +8,26 @@ function analyzeSEO(content) {
     hasSchema: false
   };
 
-  if (content.seo) {
-    seoScore.titleLength = content.seo.title ? content.seo.title.length : 0;
-    seoScore.descriptionLength = content.seo.metaDesc ? content.seo.metaDesc.length : 0;
+  if (content.title) {
+    seoScore.titleLength = content.title.rendered ? content.title.rendered.length : content.title.length;
+  }
 
-    if (content.seo.focusKeyword && content.body) {
-      const keywordCount = (content.body.toLowerCase().match(new RegExp(content.seo.focusKeyword.toLowerCase(), 'g')) || []).length;
-      const wordCount = content.body.split(/\s+/).length;
+  if (content.excerpt && content.excerpt.rendered) {
+    seoScore.descriptionLength = content.excerpt.rendered.length;
+  }
+
+  if (content.content && content.content.rendered) {
+    const bodyContent = content.content.rendered;
+    const wordCount = bodyContent.split(/\s+/).length;
+
+    if (content.yoast_seo && content.yoast_seo.focuskw) {
+      const keywordCount = (bodyContent.toLowerCase().match(new RegExp(content.yoast_seo.focuskw.toLowerCase(), 'g')) || []).length;
       seoScore.keywordDensity = (keywordCount / wordCount) * 100;
     }
 
-    seoScore.hasOpenGraph = !!(content.seo.opengraphTitle || content.seo.opengraphDescription || content.seo.opengraphImage);
-    seoScore.hasTwitterCard = !!(content.seo.twitterTitle || content.seo.twitterDescription || content.seo.twitterImage);
-    seoScore.hasSchema = Object.keys(content.seo.schema || {}).length > 0;
+    seoScore.hasOpenGraph = bodyContent.includes('og:') || (content.yoast_seo && (content.yoast_seo.opengraph_title || content.yoast_seo.opengraph_description || content.yoast_seo.opengraph_image));
+    seoScore.hasTwitterCard = bodyContent.includes('twitter:') || (content.yoast_seo && (content.yoast_seo.twitter_title || content.yoast_seo.twitter_description || content.yoast_seo.twitter_image));
+    seoScore.hasSchema = bodyContent.includes('schema.org') || (content.yoast_seo && content.yoast_seo.schema && Object.keys(content.yoast_seo.schema).length > 0);
   }
 
   return seoScore;
