@@ -130,9 +130,10 @@ async function fetchWordPressPostTypes(siteUrl, auth) {
     logger.info('Fetching WordPress post types');
     const response = await axios.get(apiUrl, { headers });
     
-    const postTypes = Object.keys(response.data).filter(type => 
-      type !== 'attachment' && response.data[type].rest_base
-    );
+    const postTypes = Object.values(response.data)
+    .filter(typeObj => typeObj.slug !== 'attachment' && typeObj.rest_base)
+    .map(typeObj => typeObj.rest_base);
+    
     logger.info('WordPress post types fetched:', postTypes);
     return postTypes;
   } catch (error) {
