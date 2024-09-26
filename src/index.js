@@ -1,8 +1,8 @@
 const { fetchWordPressContent, fetchWordPressPostTypes } = require('./connectors/wordpress');
 const { fetchDrupalContent } = require('./connectors/drupal');
 const { mapToIntermediate } = require('./mappers/intermediate');
-const { mapToStrapi } = require('./mappers/strapi');
 const { mapToJamstack } = require('./mappers/jamstack');
+const { postToStrapi } = require('./connectors/strapi'); // New import
 const fs = require('node:fs');
 const path = require('node:path');
 const { logger } = require('./utils/logger');
@@ -26,7 +26,7 @@ async function generateMigrationPath(answers) {
         destination: answers.destinationCMS,
         contentSample: null,
         seoAnalysis: null,
-        error: 'No content fetched from source CMS'
+        error: 'No content fetched from source CMS',
       };
     }
 
@@ -40,7 +40,11 @@ async function generateMigrationPath(answers) {
       const mediaDownloadPromises = intermediateContent.map(async (content) => {
         if (content.featuredImage) {
           try {
-            const destinationPath = path.join('media', content.featuredImage.filename);
+            const mediaDir = path.join('media');
+            if (!fs.existsSync(mediaDir)) {
+              fs.mkdirSync(mediaDir, { recursive: true });
+            }
+            const destinationPath = path.join(mediaDir, content.featuredImage.filename);
             await downloadMedia(content.featuredImage.url, destinationPath);
             content.featuredImage.localPath = destinationPath;
             logger.info(`Successfully downloaded media for content ID: ${content.id}`);
@@ -67,16 +71,24 @@ async function generateMigrationPath(answers) {
     let destinationContent;
     if (answers.destinationCMS === 'Strapi') {
       destinationContent = mapToStrapi(intermediateContent);
+      logger.info(`Content mapped to Strapi format successfully. Total items: ${destinationContent.length}`);
+
+      // Post content to Strapi
+      for (const contentItem of destinationContent) {
+        try {
+          await postToStrapi(contentItem, answers.strapiUrl, answers.strapiApiKey);
+        } catch (error) {
+          logger.error(`Failed to post content ID: ${contentItem.id}`, error);
+        }
+      }
     } else if (answers.destinationCMS === 'Jamstack') {
       destinationContent = mapToJamstack(intermediateContent);
     }
 
-    logger.info(`Content mapped to ${answers.destinationCMS} format successfully. Total items: ${destinationContent.length}`);
-
     return {
       source: answers.sourceCMS,
       destination: answers.destinationCMS,
-      contentSample: destinationContent[0],
+      contentSample: destinationContent ? destinationContent[0] : null,
       seoAnalysis: seoAnalysis,
     };
   } catch (error) {
@@ -86,7 +98,7 @@ async function generateMigrationPath(answers) {
       destination: answers.destinationCMS,
       contentSample: null,
       seoAnalysis: null,
-      error: error.message
+      error: error.message,
     };
   }
 }
