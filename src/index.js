@@ -15,12 +15,16 @@ async function generateMigrationPath(answers) {
 
   try {
     if (answers.sourceCMS === 'WordPress') {
-      const postTypes = await fetchWordPressPostTypes(answers.siteUrl, answers.auth);
+      let postTypes;
+      try {
+        postTypes = await fetchWordPressPostTypes(answers.siteUrl, answers.auth);
+      } catch (error) {
+        logger.warn('Failed to fetch custom post types. Falling back to default post types.');
+        postTypes = ['posts', 'pages'];
+      }
       sourceContent = await fetchWordPressContent(answers.siteUrl, answers.auth, postTypes);
-      logger.info(`WordPress content fetched successfully. Total items: ${sourceContent.length}`);
     } else if (answers.sourceCMS === 'Drupal') {
       sourceContent = await fetchDrupalContent(answers.siteUrl, answers.auth);
-      logger.info(`Drupal content fetched successfully. Total items: ${sourceContent.length}`);
     }
 
     if (!sourceContent || sourceContent.length === 0) {
@@ -34,19 +38,28 @@ async function generateMigrationPath(answers) {
       };
     }
 
+    logger.info(`${answers.sourceCMS} content fetched successfully. Total items: ${sourceContent.length}`);
+
     intermediateContent = mapToIntermediate(sourceContent, answers.sourceCMS, answers.customMappings);
     logger.info(`Content mapped to intermediate format successfully. Total items: ${intermediateContent.length}`);
 
     // Handle media downloads
     if (answers.includeMedia) {
-      for (const content of intermediateContent) {
+      const mediaDownloadPromises = intermediateContent.map(async (content) => {
         if (content.featuredImage) {
-          const destinationPath = path.join('media', content.featuredImage.filename);
-          await downloadMedia(content.featuredImage.url, destinationPath);
-          content.featuredImage.localPath = destinationPath;
+          try {
+            const destinationPath = path.join('media', content.featuredImage.filename);
+            await downloadMedia(content.featuredImage.url, destinationPath);
+            content.featuredImage.localPath = destinationPath;
+            logger.info(`Successfully downloaded media for content ID: ${content.id}`);
+          } catch (error) {
+            logger.error(`Failed to download media for content ID: ${content.id}`, error);
+          }
         }
-      }
-      logger.info('Media files downloaded successfully.');
+      });
+
+      await Promise.all(mediaDownloadPromises);
+      logger.info('Media files download process completed.');
     }
 
     // Perform SEO analysis
@@ -62,11 +75,11 @@ async function generateMigrationPath(answers) {
     let destinationContent;
     if (answers.destinationCMS === 'Strapi') {
       destinationContent = mapToStrapi(intermediateContent);
-      logger.info(`Content mapped to Strapi format successfully. Total items: ${destinationContent.length}`);
     } else if (answers.destinationCMS === 'Jamstack') {
       destinationContent = mapToJamstack(intermediateContent);
-      logger.info(`Content mapped to Jamstack format successfully. Total items: ${destinationContent.length}`);
     }
+
+    logger.info(`Content mapped to ${answers.destinationCMS} format successfully. Total items: ${destinationContent.length}`);
 
     return {
       source: answers.sourceCMS,
