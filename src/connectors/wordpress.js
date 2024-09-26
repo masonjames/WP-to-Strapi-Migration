@@ -8,20 +8,44 @@ async function fetchWordPressContent(siteUrl, auth, postTypes = ['posts', 'pages
       siteUrl = 'https://' + siteUrl;
     }
 
-    const headers = auth ? { Authorization: `Bearer ${auth.token}` } : {};
+    let headers = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Expose-Headers': 'x-wp-total, x-wp-totalpages'
+    };
+
+    if (auth) {
+      const token = await authenticateWordPress(siteUrl, auth);
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     let allContent = [];
 
-    // Fetch content for each post type
     for (const postType of postTypes) {
-      const apiUrl = `${siteUrl}/wp-json/wp/v2/${postType}`;
+      const baseUrl = `${siteUrl}/wp-json/wp/v2/${postType}`;
       logger.info(`Fetching WordPress content for post type: ${postType}`);
 
       try {
-        const response = await axios.get(apiUrl, { headers });
-        allContent = [...allContent, ...response.data];
-        logger.info(`Successfully fetched ${response.data.length} items for ${postType}`);
+        // First, get the total number of pages
+        const initialResponse = await axios.get(`${baseUrl}?per_page=100`, { headers });
+        const totalPages = parseInt(initialResponse.headers['x-wp-totalpages']) || 1;
+
+        // Fetch all pages
+        const pagePromises = [];
+        for (let page = 1; page <= totalPages; page++) {
+          pagePromises.push(axios.get(`${baseUrl}?per_page=100&page=${page}`, { headers }));
+        }
+
+        const pageResponses = await Promise.all(pagePromises);
+        const pageData = pageResponses.map(response => response.data);
+        const flattenedData = pageData.flat();
+
+        allContent = [...allContent, ...flattenedData];
+        logger.info(`Successfully fetched ${flattenedData.length} items for ${postType}`);
       } catch (error) {
-        if (error.response && error.response.status === 404) {
+        if (error.response && error.response.status === 401) {
+          logger.error(`Authentication required for post type ${postType}. Please provide valid credentials.`);
+          break;
+        } else if (error.response && error.response.status === 404) {
           logger.warn(`Post type ${postType} not found or not accessible. Skipping.`);
         } else {
           logger.warn(`Error fetching content for post type ${postType}: ${error.message}`);
@@ -29,54 +53,39 @@ async function fetchWordPressContent(siteUrl, auth, postTypes = ['posts', 'pages
             logger.warn(`Status: ${error.response.status}, Data: ${JSON.stringify(error.response.data)}`);
           }
         }
-        // Continue with the next post type
         continue;
       }
     }
 
-    // Fetch Yoast SEO data
+    // Fetch Yoast SEO data if available
     try {
       const yoastUrl = `${siteUrl}/wp-json/yoast/v1/get_head?url=${siteUrl}`;
       const yoastResponse = await axios.get(yoastUrl, { headers });
       const yoastData = yoastResponse.data;
       logger.info('Successfully fetched Yoast SEO data');
 
-      // Merge Yoast SEO data with corresponding posts
-      allContent = allContent.map(post => {
-        const postUrl = post.link;
-        const postYoastData = yoastData[postUrl] || {};
-        return { ...post, yoast_seo: postYoastData };
-      });
+      allContent = allContent.map(post => ({...post, yoast_seo: yoastData[post.link] || {}}));
     } catch (yoastError) {
       logger.warn('Yoast SEO data not available or error fetching Yoast SEO data', yoastError.message);
-      if (yoastError.response) {
-        logger.warn(`Status: ${yoastError.response.status}, Data: ${JSON.stringify(yoastError.response.data)}`);
-      }
     }
 
-    // Fetch custom fields (ACF) if available
+    // Fetch ACF data if available
     try {
       const acfUrl = `${siteUrl}/wp-json/acf/v3/posts`;
       const acfResponse = await axios.get(acfUrl, { headers });
       const acfData = acfResponse.data;
       logger.info('Successfully fetched ACF data');
 
-      // Merge ACF data with corresponding posts
       allContent = allContent.map(post => {
         const acfFields = acfData.find(acf => acf.id === post.id);
-        return { ...post, acf: acfFields ? acfFields.acf : {} };
+        return {...post, acf: acfFields ? acfFields.acf : {}};
       });
     } catch (acfError) {
       logger.warn('ACF data not available or error fetching ACF data', acfError.message);
-      if (acfError.response) {
-        logger.warn(`Status: ${acfError.response.status}, Data: ${JSON.stringify(acfError.response.data)}`);
-      }
     }
 
-    logger.info('WordPress content fetched successfully.');
     if (allContent.length > 0) {
-      logger.info(`Total items fetched: ${allContent.length}`);
-      logger.info('Sample post:', JSON.stringify(allContent[0], null, 2));
+      logger.info(`WordPress content fetched successfully. Total items: ${allContent.length}`);
     } else {
       logger.warn('No content was fetched from WordPress');
     }
@@ -93,8 +102,17 @@ async function fetchWordPressPostTypes(siteUrl, auth) {
       siteUrl = 'https://' + siteUrl;
     }
 
+    let headers = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Expose-Headers': 'x-wp-total, x-wp-totalpages'
+    };
+
+    if (auth) {
+      const token = await authenticateWordPress(siteUrl, auth);
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const apiUrl = `${siteUrl}/wp-json/wp/v2/types`;
-    const headers = auth ? { Authorization: `Bearer ${auth.token}` } : {};
 
     logger.info('Fetching WordPress post types');
     const response = await axios.get(apiUrl, { headers });
