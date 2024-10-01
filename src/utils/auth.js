@@ -1,5 +1,5 @@
 const inquirer = require('inquirer');
-const { generateMigrationPath, saveMigrationResult } = require('./index');
+const { generateMigrationPath, saveMigrationResult } = require('./logger');
 const { logger } = require('./utils/logger');
 
 async function runCLI() {
