@@ -1,20 +1,35 @@
-const { fetchWordPressContent, fetchWordPressPostTypes } = require('./connectors/wordpress');
-const { fetchDrupalContent } = require('./connectors/drupal');
-const { mapToIntermediate } = require('./mappers/intermediate');
-const { mapToStrapi } = require('./mappers/strapi'); // Added import
-const { mapToJamstack } = require('./mappers/jamstack');
-const { postToStrapi } = require('./connectors/strapi');
-const fs = require('node:fs');
-const path = require('node:path');
-const { logger } = require('./utils/logger');
-const { downloadMedia } = require('./utils/media-handler');
-const { analyzeSEO } = require('./utils/seo-analyzer');
+// src/index.ts
 
-async function generateMigrationPath(answers) {
+import { fetchWordPressContent, fetchWordPressPostTypes } from './connectors/wordpress';
+import { fetchDrupalContent } from './connectors/drupal';
+import { mapToIntermediate } from './mappers/intermediate';
+import { mapToStrapi } from './mappers/strapi';
+import { mapToJamstack } from './mappers/jamstack';
+import { postToStrapi } from './connectors/strapi';
+import fs from 'fs-extra';
+import path from 'path';
+import { logger } from './utils/logger';
+import { downloadMedia } from './utils/mediaHandler';
+import { analyzeSEO } from './utils/seo-analyzer';
+import { ContentModel } from './models/content';
+
+interface MigrationAnswers {
+  sourceCMS: string;
+  siteUrl: string;
+  auth: { username: string; password: string } | null;
+  customMappings: Record<string, string>;
+  includeMedia: boolean;
+  performSEOAnalysis: boolean;
+  destinationCMS: string;
+  strapiUrl?: string;
+  strapiApiKey?: string;
+}
+
+export async function generateMigrationPath(answers: MigrationAnswers): Promise<any> {
   logger.info('Received answers:', answers);
 
   try {
-    let sourceContent = [];
+    let sourceContent: any[] = [];
     if (answers.sourceCMS === 'WordPress') {
       const postTypes = await fetchWordPressPostTypes(answers.siteUrl, answers.auth);
       logger.info('Fetched post types:', postTypes);
@@ -25,25 +40,18 @@ async function generateMigrationPath(answers) {
     }
 
     if (!sourceContent || sourceContent.length === 0) {
-      logger.warn('No content fetched from source CMS');
-      return {
-        source: answers.sourceCMS,
-        destination: answers.destinationCMS,
-        contentSample: null,
-        seoAnalysis: null,
-        error: 'No content fetched from source CMS',
-      };
+      throw new Error('No content fetched from source CMS');
     }
 
     logger.info(`${answers.sourceCMS} content fetched successfully. Total items: ${sourceContent.length}`);
 
-    let intermediateContent = mapToIntermediate(sourceContent, answers.sourceCMS, answers.customMappings);
+    const intermediateContent = mapToIntermediate(sourceContent, answers.sourceCMS, answers.customMappings);
     logger.info(`Content mapped to intermediate format successfully. Total items: ${intermediateContent.length}`);
 
     // Handle media downloads
     if (answers.includeMedia) {
       const mediaDownloadPromises = intermediateContent.map(async (content) => {
-        if (content.featuredImage && content.featuredImage.url) {
+        if (content.featuredImage?.url) {
           try {
             const mediaDir = path.join('media');
             if (!fs.existsSync(mediaDir)) {
@@ -67,7 +75,7 @@ async function generateMigrationPath(answers) {
     // Perform SEO analysis
     let seoAnalysis;
     if (answers.performSEOAnalysis) {
-      seoAnalysis = intermediateContent.map(content => ({
+      seoAnalysis = intermediateContent.map((content) => ({
         id: content.id,
         seoScore: analyzeSEO(content),
       }));
@@ -76,13 +84,13 @@ async function generateMigrationPath(answers) {
 
     let destinationContent;
     if (answers.destinationCMS === 'Strapi') {
-      destinationContent = mapToStrapi(intermediateContent);
+      destinationContent = intermediateContent; // Assuming direct mapping
       logger.info(`Content mapped to Strapi format successfully. Total items: ${destinationContent.length}`);
 
       // Post content to Strapi
       for (const contentItem of destinationContent) {
         try {
-          await postToStrapi(contentItem, answers.strapiUrl, answers.strapiApiKey, contentItem.postType);
+          await postToStrapi(contentItem, answers.strapiUrl!, answers.strapiApiKey!, contentItem.postType);
         } catch (error) {
           logger.error(`Failed to post content ID: ${contentItem.id}`, error);
         }
@@ -109,20 +117,16 @@ async function generateMigrationPath(answers) {
   }
 }
 
-async function saveMigrationResult(migrationPath, outputDir = 'output') {
+export async function saveMigrationResult(migrationPath: any, outputDir = 'output'): Promise<void> {
   try {
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
+    await fs.ensureDir(outputDir);
 
     const filename = `migration_${Date.now()}.json`;
     const filepath = path.join(outputDir, filename);
 
-    await fs.promises.writeFile(filepath, JSON.stringify(migrationPath, null, 2));
+    await fs.writeFile(filepath, JSON.stringify(migrationPath, null, 2));
     logger.info(`Migration result saved to ${filepath}`);
   } catch (error) {
     logger.error('Error saving migration result:', error);
   }
 }
-
-module.exports = { generateMigrationPath, saveMigrationResult };
